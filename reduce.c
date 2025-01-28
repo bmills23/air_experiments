@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -84,12 +85,33 @@ int main() {
         fprintf(stderr, "Failed to read data\n");
         return 1;
     }
-    
-    // error
-    if(data == NULL)
+
+    // array for unique parameter names
+    char **param_names = NULL;
+    size_t size = 0;
+    size_t capacity = 1;
+
+    param_names = malloc(capacity * sizeof(char *));
+
+    if (!param_names)
+    {
+        perror("Failed to allocate memory");
         return 1;
+    }
+
+    // Implement Loop for pushing unique params to param_names array from csv file
 
     free(data);
+
+    // Print the unique parameters
+    printf("Unique parameters:\n");
+    for (int i = 0; i < size; i++) {
+        printf("%s\n", param_names[i]);
+        free(param_names[i]); // Free each string
+    }
+
+    free(param_names);
+    
     return 0;
 }
 
@@ -113,6 +135,7 @@ AQSData *read_data(const char *filename, size_t *len)
     // assuming that no line will be longer than 1023 chars long
     char line[1024];
 
+    // Read one line at a time
     while(fgets(line, sizeof line, fp))
     {
         tmp = realloc(arr, (*len + 1) * sizeof *arr);
@@ -130,12 +153,14 @@ AQSData *read_data(const char *filename, size_t *len)
             return arr;
         }
 
+        // arr = allocated tmp string
         arr = tmp;
 
         // Parse the CSV line into the structure
         char *token = strtok(line, ",");
         int field = 0;
         
+        // while loop for line only
         while(token != NULL && field < 53) {
             switch(field) {
                 case 0:
@@ -333,11 +358,9 @@ AQSData *read_data(const char *filename, size_t *len)
             token = strtok(NULL, ",");
             field++;
         }
-
         // incrementing only when parsing of line was OK
         (*len)++;
     }
-
     fclose(fp);
     return arr;
 }
