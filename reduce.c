@@ -89,29 +89,98 @@ int main() {
     // array for unique parameter names
     char **param_names = NULL;
     size_t size = 0;
-    size_t capacity = 1;
 
+    // Place a solid cap on params to start
+    size_t capacity = 1024;
+
+    // Allocate Array 
     param_names = malloc(capacity * sizeof(char *));
 
+    // Check for Allocation Error
     if (!param_names)
     {
-        perror("Failed to allocate memory");
+        perror("Failed to allocate param_names");
         return 1;
     }
 
-    // Implement Loop for pushing unique params to param_names array from csv file
+    // TODO: Sort parameters alphanumerically
 
-    free(data);
+    // Implement Loop for pushing unique params to param_names array from csv file
+    for (int i = 1; i < aqs_len; i++)
+    {
+        if (size == capacity)
+        {
+            capacity *= 2;
+            char **temp = realloc(param_names, capacity * sizeof(char *));
+
+            if (!temp)
+            {
+                perror("Failed to allocate temp");
+
+                // Free individual strings first 
+                for (int j = 0; j < size; j++)
+                {
+                    free(param_names[j]);
+                }
+
+                free(param_names);
+                free(data);
+
+                return 1;
+            }
+
+            // if successful, set param_names = temp
+            param_names = temp;
+        }
+
+        // Flag for continuing i loop
+        bool match = false;
+
+        for (int j = 0; j < size; j++)
+        {
+            if (strcmp(param_names[j], data[i].parameter_name) == 0)
+            {
+                match = true;
+                break;
+            }
+        }
+
+        if (match) continue;
+
+        // Allocate memory for string and copy 
+        param_names[size] = malloc(strlen(data[i].parameter_name) + 1);
+
+        if (!param_names[size])
+        {
+            perror("Failed to allocate param_names[size]");
+
+            // Free individual strings first 
+            for (int j = 0; j < size; j++)
+            {
+                free(param_names[j]);
+            }
+
+            free(param_names);
+            free(data);
+        }
+
+        strcpy(param_names[size], data[i].parameter_name);
+
+        size++;
+    }
+
+    // If all goes well, free the relevant pointers
 
     // Print the unique parameters
     printf("Unique parameters:\n");
     for (int i = 0; i < size; i++) {
-        printf("%s\n", param_names[i]);
+        printf("Chemical Parameter %i: %s\n", i + 1, param_names[i]);
         free(param_names[i]); // Free each string
     }
 
     free(param_names);
-    
+    free(data);
+
     return 0;
 }
 
@@ -135,6 +204,9 @@ AQSData *read_data(const char *filename, size_t *len)
     // assuming that no line will be longer than 1023 chars long
     char line[1024];
 
+    // bool for keeping track of quote state 
+    bool in_quotes = false;
+
     // Read one line at a time
     while(fgets(line, sizeof line, fp))
     {
@@ -156,12 +228,26 @@ AQSData *read_data(const char *filename, size_t *len)
         // arr = allocated tmp string
         arr = tmp;
 
-        // Parse the CSV line into the structure
+        // ** Parse the CSV line into the structure 
+
+        // TODO: Need to implement more robust logic to handle commas within double quotes, some parameters are truncated because of this
+        // // Use a boolean value and index to track if we're within double quotes, if we are, we ignore internal commas
+        // if (!in_quotes && *line == '"')
+        // {
+        //     // If we're not in quotes, and quote count is 0, we've just entered quoted text
+        //     in_quotes = true;
+        // } else if (in_quotes && *line == '"')
+        // {
+        //     // If we're in quotes, and quote_count is 1, we're exiting quotes
+        //     in_quotes = false;
+        // }
+
+        // Once we're in quotes
         char *token = strtok(line, ",");
         int field = 0;
         
         // while loop for line only
-        while(token != NULL && field < 53) {
+        while(token != NULL && field < 55) {
             switch(field) {
                 case 0:
                     strncpy(arr[*len].state_code, token, sizeof(arr[*len].state_code)-1);
