@@ -6,6 +6,9 @@
 #include <errno.h>
 #include <stdlib.h>
 
+#define MAX_LENGTH 1024
+#define MAX_FIELDS 55
+
 // Define the struct for AQS data
 typedef struct {
     char state_code[3];
@@ -16,11 +19,11 @@ typedef struct {
     double latitude;
     double longitude;
     char datum[10];
-    char parameter_name[50];
+    char parameter_name[200];
     char sample_duration[20];
     char pollutant_standard[50];
     char metric_used[150];
-    char method_name[50];
+    char method_name[200];
     int year;
     char units_of_measure[20];
     char event_type[20];
@@ -57,7 +60,7 @@ typedef struct {
     double percentile_50;
     double percentile_10;
     char local_site_name[50];
-    char address[100];
+    char address[200];
     char state_name[20];
     char county_name[50];
     char city_name[50];
@@ -68,8 +71,12 @@ typedef struct {
 // Read data from CSV file
 AQSData *read_data(const char *filename, size_t *len);
 
-// Function to compare nums and letters
-int comp(const void *a, const void *b) {
+// Function to Parse Each Line
+char *parse_csv_line(char *line, int len);
+
+// Function to compare nums and letters for qsort
+int comp(const void *a, const void *b)
+{
     const char *str1 = *(const char **)a;
     const char *str2 = *(const char **)b;
 
@@ -89,6 +96,8 @@ int main() {
     char fp[4096];
 
     printf("Enter a file name to parse: ");
+
+    // Get input 
     fgets(fp, sizeof(fp), stdin);
 
     // Remove the trailing newline character that fgets includes
@@ -100,7 +109,8 @@ int main() {
     AQSData *data = read_data(fp, &aqs_len);
 
     // Check for error first
-    if(data == NULL) {
+    if(data == NULL) 
+    {
         fprintf(stderr, "Failed to read data\n");
         return 1;
     }
@@ -110,7 +120,7 @@ int main() {
     size_t size = 0;
 
     // Place a solid cap on params to start
-    size_t capacity = 1024;
+    int capacity = MAX_LENGTH;
 
     // Allocate Array 
     param_names = malloc(capacity * sizeof(char *));
@@ -123,6 +133,8 @@ int main() {
     }
 
     // Implement Loop for pushing unique params to param_names array from csv file
+
+    // i = 1 to skip header
     for (int i = 1; i < aqs_len; i++)
     {
         if (size == capacity)
@@ -155,18 +167,20 @@ int main() {
 
         for (int j = 0; j < size; j++)
         {
-            if (strcmp(param_names[j], data[i].parameter_name) == 0)
+            if (!strcmp(param_names[j], data[i].parameter_name))
             {
                 match = true;
                 break;
             }
         }
 
+        // If match true, 
         if (match) continue;
 
         // Allocate memory for string and copy 
         param_names[size] = malloc(strlen(data[i].parameter_name) + 1);
 
+        // Allocation error 
         if (!param_names[size])
         {
             perror("Failed to allocate param_names[size]");
@@ -196,9 +210,30 @@ int main() {
     // If all goes well, free the relevant pointers
     // Print the uniqe parameters
     printf("Unique parameters:\n");
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < size; i++) 
+    {
         printf("Parameter %i: %s\n", i + 1, param_names[i]);
-        free(param_names[i]); // Free each string
+    }
+
+    // TODO: Implement Param Selection to Reduce CSV Size for GIS Applications
+    
+    printf("Enter Parameter for Reduced Output File: ");
+    
+    // Get Parameter using same buffer as before for efficiency
+    fgets(fp, sizeof(fp), stdin);
+
+    if (fgets(fp, sizeof(fp), stdin) == NULL) 
+    {
+        fp[0] = '\0';  // Only nullify if fgets fails
+    }
+
+    // Remove the trailing newline character that fgets includes
+    fp[strcspn(fp, "\n")] = '\0';
+
+    // Free data once passed down the pipeline
+    for (int i = 0; i < size; i++) 
+    {
+        free(param_names[i]);
     }
 
     free(param_names);
@@ -213,8 +248,10 @@ AQSData *read_data(const char *filename, size_t *len) {
     if (filename == NULL || len == NULL)
         return NULL;
 
+    // Open File
     FILE *fp = fopen(filename, "r");
-    if (fp == NULL) {
+    if (fp == NULL) 
+    {
         fprintf(stderr, "Could not open %s: %s\n", filename, strerror(errno));
         return NULL;
     }
@@ -223,7 +260,7 @@ AQSData *read_data(const char *filename, size_t *len) {
     *len = 0;
 
     // Assuming that no line will be longer than 1023 chars
-    char line[1024];
+    char line[MAX_LENGTH];
 
     // Read one line at a time
     while (fgets(line, sizeof(line), fp)) {
@@ -241,21 +278,14 @@ AQSData *read_data(const char *filename, size_t *len) {
         arr = tmp;
 
         // Parse the CSV line into the structure
-        char *token = strtok(line, ",");
+        char *token = parse_csv_line(line, MAX_LENGTH);
+        
+        // Get token with Unit Separator as delimiter
+        token = strtok(token, "\x1F");
+        
         int field = 0;
 
-        while (token != NULL) {
-            // Handle the case where the field is in quotes
-            if (token[0] == '"') {
-                // Remove the starting quote
-                token++;
-                // Find the closing quote
-                char *end_quote = strchr(token, '"');
-                if (end_quote != NULL) {
-                    *end_quote = '\0';  // Null-terminate the string before the closing quote
-                }
-            }
-
+        while (token != NULL && field < MAX_FIELDS) {
             // Assign the token to the appropriate field in the struct
             switch (field) {
                 case 0:
@@ -441,15 +471,57 @@ AQSData *read_data(const char *filename, size_t *len) {
                     strncpy(arr[*len].county_name, token, sizeof(arr[*len].county_name) - 1);
                     arr[*len].county_name[sizeof(arr[*len].county_name) - 1] = '\0';
                     break;
-                default:
+                case 53:
+                    strncpy(arr[*len].city_name, token, sizeof(arr[*len].city_name) - 1);
+                    arr[*len].city_name[sizeof(arr[*len].city_name) - 1] = '\0';
+                    break;
+                case 54:
+                    strncpy(arr[*len].cbsa_name, token, sizeof(arr[*len].cbsa_name) - 1);
+                    arr[*len].cbsa_name[sizeof(arr[*len].cbsa_name) - 1] = '\0';
+                    break;
+                case 55:
+                    strncpy(arr[*len].date_of_last_change, token, sizeof(arr[*len].date_of_last_change) - 1);
+                    arr[*len].date_of_last_change[sizeof(arr[*len].date_of_last_change) - 1] = '\0';
                     break;
             }
             field++;
-            token = strtok(NULL, ",");
+            token = strtok(NULL, "\x1F");
         }
         (*len)++;
     }
 
     fclose(fp);
     return arr;
+}
+
+// Parse line, replace with more efficient delimiter, make all lowercase
+char* parse_csv_line(char *line, int len) 
+{
+    bool in_quotes = false;
+    char *ptr = line;
+
+    for (int i = 0; i < len; i++)
+    {        
+        // if double quotes and comma not after, we're in a column
+        if (ptr[i] == '"' && ptr[i + 1] != ',') 
+        {
+            in_quotes = true;
+        // Else if , following ", we're leaving the column
+        } else if (ptr[i] == '"' && ptr[i + 1] == ',')
+        {
+            in_quotes = false;
+        }
+
+        // Change to a nearly impossible single char delimiter for ease because I am so sick of commas, f*** you commas
+        if (!in_quotes && ptr[i] == ',')
+        {
+            // Ascii unit separator
+            ptr[i] = '\x1F';
+        }
+
+        // End if Null Terminator Encountered
+        if (ptr[i] == '\0') break;
+    }
+
+    return ptr;
 }
