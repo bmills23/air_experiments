@@ -1,13 +1,34 @@
 #include <ctype.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
-#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define MAX_LENGTH 1024
 #define MAX_FIELDS 55
+
+#ifdef _WIN32
+    #include <conio.h>  // Windows: _getch()
+#else
+    #include <termios.h>  // Linux/macOS: termios for raw input
+    #include <unistd.h>
+
+    // Must Define getch() to Match Windows Functionality
+    char getch() 
+    {
+        struct termios oldt, newt;
+        char ch;
+        tcgetattr(STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+        ch = getchar();
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+        return ch;
+    }
+#endif
 
 // Define the struct for AQS data
 typedef struct {
@@ -68,29 +89,21 @@ typedef struct {
     char date_of_last_change[15];
 } AQSData;
 
+// * Functions * // 
+
 // Read data from CSV file
 AQSData *read_data(const char *filename, size_t *len);
 
 // Function to Parse Each Line
 char *parse_csv_line(char *line, int len);
 
+// Function for Autocomplete
+void autocomplete(char *buffer, int param_count, char **param_names);
+
 // Function to compare nums and letters for qsort
-int comp(const void *a, const void *b)
-{
-    const char *str1 = *(const char **)a;
-    const char *str2 = *(const char **)b;
+int comp(const void *a, const void *b);
 
-    // Check if first characters are digits
-    int is_digit1 = isdigit((unsigned char)str1[0]);
-    int is_digit2 = isdigit((unsigned char)str2[0]);
-
-    // If one is a number and the other is not, prioritize the number
-    if (is_digit1 && !is_digit2) return -1;
-    if (!is_digit1 && is_digit2) return 1;
-
-    // If both are numbers or both are letters, use strcmp for alphanumeric sorting
-    return strcmp(str1, str2);
-}
+// * MAIN * //
 
 int main() {
     char fp[4096];
@@ -203,50 +216,97 @@ int main() {
     }
 
     // Quick Sort param_names
-    int n = size;
+    qsort(param_names, size, sizeof(param_names[0]), comp);
 
-    qsort(param_names, n, sizeof(param_names[0]), comp);
+    // New Array for no_quotes_params
+    char **no_quote_params = malloc(size * sizeof(char *));
+
+    if (!no_quote_params)
+    {
+        perror("no_quote_params allocation failed");
+
+        // Free individual strings first 
+        for (int j = 0; j < size; j++)
+        {
+            free(param_names[j]);
+        }
+
+        free(param_names);
+        free(data);
+
+        return 1;
+    }
+
+    int copy_size = 0;
+    for (int i = 0; i < size; i++) {
+        int len = strlen(param_names[i]);
+
+        // Allocate memory for new string (excluding quotes, +1 for null terminator)
+        no_quote_params[i] = malloc(len + 1);  
+        copy_size++;
+
+        if (!no_quote_params[i]) {
+            perror("no_quote_params[i] allocation failed");
+
+            // Free allocated memory before exiting
+            for (int j = 0; j < size; j++) {
+                free(param_names[j]);
+            }
+            for (int j = 0; j < copy_size; j++) {
+                free(no_quote_params[j]);
+            }
+
+            free(param_names);
+            free(data);
+            return 1;
+        }
+
+        int k = 0;  // Separate index for no_quote_params
+        for (int j = 0; j < len; j++) {
+            if (param_names[i][j] == '"') {
+                continue;
+            } 
+            no_quote_params[i][k++] = param_names[i][j];
+        }
+        no_quote_params[i][k] = '\0';  // Null-terminate the string
+    }
 
     // If all goes well, free the relevant pointers
-    // Print the uniqe parameters
+    // Print the unique parameters
     printf("Unique parameters:\n");
     for (int i = 0; i < size; i++) 
     {
-        printf("Parameter %i: %s\n", i + 1, param_names[i]);
+        printf("Parameter %i: %s\n", i + 1, no_quote_params[i]);
     }
-
-    // TODO: Implement Param Selection to Reduce CSV Size for GIS Applications
     
-    printf("Enter Parameter for Reduced Output File: ");
+    // Buffer for Autocomplete Function
+    char buffer[200];
     
     // Get Parameter using same buffer as before for efficiency
-    fgets(fp, sizeof(fp), stdin);
+    autocomplete(buffer, size, no_quote_params);
 
-    if (fgets(fp, sizeof(fp), stdin) == NULL) 
-    {
-        fp[0] = '\0';  // Only nullify if fgets fails
-    }
-
-    // Remove the trailing newline character that fgets includes
-    fp[strcspn(fp, "\n")] = '\0';
+    // TODO: Implement Param Selection to Reduce CSV Size for GIS Applications
 
     // Free data once passed down the pipeline
     for (int i = 0; i < size; i++) 
     {
         free(param_names[i]);
+        free(no_quote_params[i]);
     }
 
     free(param_names);
+    free(no_quote_params);
     free(data);
 
     return 0;
 }
 
-// takes 2 params, the filename and a pointer
-// to size_t where the number of data points is stored
-AQSData *read_data(const char *filename, size_t *len) {
-    if (filename == NULL || len == NULL)
-        return NULL;
+/* takes 2 params, the filename and a pointer
+  to size_t where the number of data points is stored */
+
+AQSData *read_data(const char *filename, size_t *len) 
+{
+    if (filename == NULL || len == NULL) return NULL;
 
     // Open File
     FILE *fp = fopen(filename, "r");
@@ -256,6 +316,7 @@ AQSData *read_data(const char *filename, size_t *len) {
         return NULL;
     }
 
+    // Set arr and tmp for data manip
     AQSData *arr = NULL, *tmp;
     *len = 0;
 
@@ -263,7 +324,8 @@ AQSData *read_data(const char *filename, size_t *len) {
     char line[MAX_LENGTH];
 
     // Read one line at a time
-    while (fgets(line, sizeof(line), fp)) {
+    while (fgets(line, sizeof(line), fp)) 
+    {
         tmp = realloc(arr, (*len + 1) * sizeof(*arr));
         if (tmp == NULL) {
             fprintf(stderr, "could not parse the whole file %s\n", filename);
@@ -285,9 +347,11 @@ AQSData *read_data(const char *filename, size_t *len) {
         
         int field = 0;
 
-        while (token != NULL && field < MAX_FIELDS) {
+        while (token != NULL && field < MAX_FIELDS) 
+        {
             // Assign the token to the appropriate field in the struct
-            switch (field) {
+            switch (field)
+            {
                 case 0:
                     strncpy(arr[*len].state_code, token, sizeof(arr[*len].state_code) - 1);
                     arr[*len].state_code[sizeof(arr[*len].state_code) - 1] = '\0';
@@ -502,6 +566,8 @@ char* parse_csv_line(char *line, int len)
 
     for (int i = 0; i < len; i++)
     {        
+        // Need lowercase for comprehensive qsort
+        ptr[i] = tolower(ptr[i]);
         // if double quotes and comma not after, we're in a column
         if (ptr[i] == '"' && ptr[i + 1] != ',') 
         {
@@ -524,4 +590,69 @@ char* parse_csv_line(char *line, int len)
     }
 
     return ptr;
+}
+
+void autocomplete(char *buffer, int param_count, char **param_names) 
+{
+    int index = 0;
+    int last_match_index = -1;  // Track last suggested match
+    int match_count = 0;
+    char c;
+
+    printf("Enter parameter (Tab for autocomplete): ");
+    
+    while (1) 
+    {
+        #ifdef _WIN32
+            c = _getch();  // Windows: Non-blocking character input
+        #else
+            c = getch();   // Linux/macOS: Non-blocking character input
+        #endif
+
+        if (c == '\n' || c == '\r') 
+        {  // Enter key
+            buffer[index] = '\0';
+            break;
+        } else if (c == 127 || c == '\b') 
+        {  // Backspace
+            if (index > 0) 
+            {
+                index--;
+                printf("\b \b");
+            }
+        } else if (c == '\t') 
+        {  // Tab key → Autocomplete
+            for (int i = 0; i < param_count; i++) 
+            {
+                if (strncmp(param_names[i], buffer, index) == 0) 
+                {
+                    strcpy(buffer, param_names[i]);
+                    printf("%s\n", &buffer[index]);  // Print remaining characters
+                    index = strlen(buffer);
+                    break;
+                }
+            }
+        } else if (c >= 32 && c <= 126) 
+        {  // Printable ASCII characters
+            buffer[index++] = c;
+            printf("%c", c);
+        }
+    }
+}
+
+int comp(const void *a, const void *b)
+{
+    const char *str1 = *(const char **)a;
+    const char *str2 = *(const char **)b;
+
+    // Check if first characters are digits
+    int is_digit1 = isdigit((unsigned char)str1[0]);
+    int is_digit2 = isdigit((unsigned char)str2[0]);
+
+    // If one is a number and the other is not, prioritize the number
+    if (is_digit1 && !is_digit2) return -1;
+    if (!is_digit1 && is_digit2) return 1;
+
+    // If both are numbers or both are letters, use strcmp for alphanumeric sorting
+    return strcmp(str1, str2);
 }
