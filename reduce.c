@@ -6,9 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// // For time optimization only
-// #include <time.h>
-
 #define MAX_LENGTH 1024
 #define MAX_FIELDS 55
 
@@ -108,12 +105,8 @@ int comp(const void *a, const void *b);
 
 // * MAIN * //
 
-int main(int argc, char *argv[]) {
-
-    // clock_t start, end;
-    // double cpu_time_used;
-
-    // start = clock(); // Record start time
+int main(int argc, char *argv[])
+{
 
     const char *filename = argv[1];
 
@@ -291,8 +284,6 @@ int main(int argc, char *argv[]) {
     // Get Parameter for In-Line Autocomplete
     autocomplete(buffer, size, no_quote_params);
 
-    // TODO: Implement Param Selection to Reduce CSV Size for GIS Applications
-
     // Free data once passed down the pipeline
     for (int i = 0; i < size; i++) 
     {
@@ -303,12 +294,6 @@ int main(int argc, char *argv[]) {
     free(param_names);
     free(no_quote_params);
     free(data);
-
-    // end = clock(); // Record end time
-
-    // cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC; // Calculate elapsed time in seconds
-
-    // printf("Time taken: %f seconds\n", cpu_time_used);
 
     return EXIT_SUCCESS;
 }
@@ -669,10 +654,41 @@ void autocomplete(char *buffer, int param_count, char **param_names)
             printf("%c", c);
         } 
 
-        // TODO : WHAT IS SHIFT
-        else if (c == '\v')
-        {
-            printf("Okay");
+        else if (c == 27) 
+        {  // Escape sequence for Shift + Tab key → Cycle backwards through suggestions
+            char next_char = getch();
+            if (next_char == 91) 
+            {  // Check for '[' character
+                next_char = getch();
+                if (next_char == 90) 
+                {  // Check for 'Z' character (Shift + Tab)
+                    tabbed = true;
+                    match_count = 0;
+                    int last_match_index_before = last_match_index;
+
+                    for (int i = param_count - 1; i >= 0; i--) 
+                    {
+                        if (strncmp(param_names[i], buffer, index) == 0) 
+                        {
+                            match_count++;
+
+                            if (last_match_index == -1 || last_match_index > i) 
+                            {
+                                last_match_index = i;
+                                strcpy(buffer, param_names[i]);
+                                printf("\r%-50s", buffer);  // Overwrite the input line
+                                index = 0;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (match_count > 0 && last_match_index == 0) 
+                    {
+                        last_match_index = last_match_index_before; // Restart cycling
+                    }
+                }
+            }
         }
     }
 }
