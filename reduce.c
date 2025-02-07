@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// // For time optimization only
+// #include <time.h>
+
 #define MAX_LENGTH 1024
 #define MAX_FIELDS 55
 
@@ -28,7 +31,7 @@
         tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
         return ch;
     }
-#endif
+#endif      
 
 // Define the struct for AQS data
 typedef struct {
@@ -105,27 +108,30 @@ int comp(const void *a, const void *b);
 
 // * MAIN * //
 
-int main() {
-    char fp[4096];
+int main(int argc, char *argv[]) {
 
-    printf("Enter a file name to parse: ");
+    // clock_t start, end;
+    // double cpu_time_used;
 
-    // Get input 
-    fgets(fp, sizeof(fp), stdin);
+    // start = clock(); // Record start time
 
-    // Remove the trailing newline character that fgets includes
-    fp[strcspn(fp, "\n")] = '\0';
+    const char *filename = argv[1];
 
-    printf("You entered: %s\n", fp);
+    if (argc < 2)
+    {
+        printf("Error: Not enough arguments\nUsage: ./reduce input_file_path\n");
+        return EXIT_FAILURE;
+    }
 
     size_t aqs_len;
-    AQSData *data = read_data(fp, &aqs_len);
+    // Populate structs
+    AQSData *data = read_data(filename, &aqs_len);
 
     // Check for error first
-    if(data == NULL) 
+    if(data == NULL)
     {
         fprintf(stderr, "Failed to read data\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // array for unique parameter names
@@ -142,7 +148,7 @@ int main() {
     if (!param_names)
     {
         perror("Failed to allocate param_names");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Implement Loop for pushing unique params to param_names array from csv file
@@ -168,7 +174,7 @@ int main() {
                 free(param_names);
                 free(data);
 
-                return 1;
+                return EXIT_FAILURE;
             }
 
             // if successful, set param_names = temp
@@ -207,7 +213,7 @@ int main() {
             free(param_names);
             free(data);
 
-            return 1;
+            return EXIT_FAILURE;
         }
 
         strcpy(param_names[size], data[i].parameter_name);
@@ -234,7 +240,7 @@ int main() {
         free(param_names);
         free(data);
 
-        return 1;
+        return EXIT_FAILURE;
     }
 
     int copy_size = 0;
@@ -258,7 +264,7 @@ int main() {
 
             free(param_names);
             free(data);
-            return 1;
+            return EXIT_FAILURE;
         }
 
         int k = 0;  // Separate index for no_quote_params
@@ -282,7 +288,7 @@ int main() {
     // Buffer for Autocomplete Function
     char buffer[200];
     
-    // Get Parameter using same buffer as before for efficiency
+    // Get Parameter for In-Line Autocomplete
     autocomplete(buffer, size, no_quote_params);
 
     // TODO: Implement Param Selection to Reduce CSV Size for GIS Applications
@@ -298,7 +304,13 @@ int main() {
     free(no_quote_params);
     free(data);
 
-    return 0;
+    // end = clock(); // Record end time
+
+    // cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC; // Calculate elapsed time in seconds
+
+    // printf("Time taken: %f seconds\n", cpu_time_used);
+
+    return EXIT_SUCCESS;
 }
 
 /* takes 2 params, the filename and a pointer
@@ -595,47 +607,72 @@ char* parse_csv_line(char *line, int len)
 void autocomplete(char *buffer, int param_count, char **param_names) 
 {
     int index = 0;
-    int last_match_index = -1;  // Track last suggested match
     int match_count = 0;
+    int last_match_index = -1;
     char c;
+    bool tabbed = false;
+    printf("Enter parameter (Tab for autocomplete and Increment, Shift + Tab to Decrement):\n");
 
-    printf("Enter parameter (Tab for autocomplete): ");
-    
-    while (1) 
-    {
+    while (1) {
         #ifdef _WIN32
-            c = _getch();  // Windows: Non-blocking character input
+            c = _getch();
         #else
-            c = getch();   // Linux/macOS: Non-blocking character input
+            c = getch();
         #endif
 
         if (c == '\n' || c == '\r') 
-        {  // Enter key
+        {
             buffer[index] = '\0';
+            printf("\n");
             break;
         } else if (c == 127 || c == '\b') 
-        {  // Backspace
-            if (index > 0) 
-            {
+        {
+            if (index > 0) {
                 index--;
                 printf("\b \b");
             }
         } else if (c == '\t') 
-        {  // Tab key → Autocomplete
-            for (int i = 0; i < param_count; i++) 
+        {  // Tab key → Cycle through suggestions
+            tabbed = true;
+            match_count = 0;
+            int first_match_index = -1;
+
+            for (int i = 0; i < param_count; i++)
             {
                 if (strncmp(param_names[i], buffer, index) == 0) 
                 {
-                    strcpy(buffer, param_names[i]);
-                    printf("%s\n", &buffer[index]);  // Print remaining characters
-                    index = strlen(buffer);
-                    break;
+                    if (match_count == 0) 
+                    {
+                        first_match_index = i;
+                    }
+                    match_count++;
+
+                    if (last_match_index == -1 || last_match_index < i) 
+                    {
+                        last_match_index = i;
+                        strcpy(buffer, param_names[i]);
+                        printf("\r%-50s", buffer);  // Overwrite the input line
+                        index = 0;
+                        break;
+                    }
                 }
             }
+            
+            if (match_count > 0 && last_match_index == param_count - 1) 
+            {
+                last_match_index = first_match_index - 1; // Restart cycling
+            }
+            
         } else if (c >= 32 && c <= 126) 
         {  // Printable ASCII characters
             buffer[index++] = c;
             printf("%c", c);
+        } 
+
+        // TODO : WHAT IS SHIFT
+        else if (c == '\v')
+        {
+            printf("Okay");
         }
     }
 }
